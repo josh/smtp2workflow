@@ -245,7 +245,7 @@ func (s *Session) Data(r io.Reader) error {
 		}
 	}
 
-	log.Println("OK", s.Workflow, 201)
+	log.Println("OK", s.Workflow, 200)
 
 	return nil
 }

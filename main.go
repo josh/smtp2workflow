@@ -1,19 +1,22 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"net/mail"
 	"os"
 	"strings"
 
 	"github.com/emersion/go-smtp"
+	"github.com/google/go-github/v44/github"
 	"github.com/namsral/flag"
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -26,18 +29,30 @@ var (
 	fs           *flag.FlagSet
 	domain       string
 	code         string
+	githubToken  string
+	githubTS     oauth2.TokenSource
 	tlsCertPath  string
 	tlsKeyPath   string
 	healthcheck  bool
 	printVersion bool
 )
 
-var webhooks = make(map[string]string)
+type Workflow struct {
+	Owner            string
+	Repo             string
+	Ref              string
+	WorkflowFileName string
+}
+
+var workflows = make(map[string]Workflow)
 
 func main() {
+	ctx := context.Background()
+
 	fs = flag.NewFlagSetWithEnvPrefix(name, envPrefix, flag.ExitOnError)
 	fs.StringVar(&domain, "domain", "localhost", "domain")
 	fs.StringVar(&code, "code", "", "secret code")
+	fs.StringVar(&githubToken, "github-token", "", "github personal access token")
 	fs.StringVar(&tlsCertPath, "tls-cert", "", "TLS certificate path")
 	fs.StringVar(&tlsKeyPath, "tls-key", "", "TLS key path")
 	fs.BoolVar(&healthcheck, "healthcheck", false, "run healthcheck")
@@ -49,14 +64,57 @@ func main() {
 		os.Exit(0)
 	}
 
+	if githubToken != "" {
+		githubTS = oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: githubToken},
+		)
+	}
+
 	for _, s := range os.Environ() {
 		kv := strings.SplitN(s, "=", 2)
-		if strings.HasPrefix(kv[0], "SMTP2WORKFLOW_URL_") {
-			key := code + "+" + strings.ToLower(kv[0][17:]) + "@"
+		if strings.HasPrefix(kv[0], "SMTP2WORKFLOW_REPOSITORY_") {
+			key := code + "+" + strings.ToLower(kv[0][25:]) + "@"
 			value := kv[1]
-			webhooks[key] = value
 
-			log.Printf("Forwarding %s%s to %s\n", key, domain, value)
+			workflow, ok := workflows[key]
+			if !ok {
+				workflow = Workflow{}
+			}
+
+			nwo := strings.SplitN(value, "/", 2)
+			workflow.Owner = nwo[0]
+			workflow.Repo = nwo[1]
+
+			ref, err := GetDefaultBranch(ctx, workflow.Owner, workflow.Repo)
+			if workflow.Ref == "" && err == nil {
+				workflow.Ref = *ref
+			}
+
+			workflows[key] = workflow
+		}
+
+		if strings.HasPrefix(kv[0], "SMTP2WORKFLOW_REF_") {
+			key := code + "+" + strings.ToLower(kv[0][18:]) + "@"
+			value := kv[1]
+
+			workflow, ok := workflows[key]
+			if !ok {
+				workflow = Workflow{}
+			}
+			workflow.Ref = value
+			workflows[key] = workflow
+		}
+
+		if strings.HasPrefix(kv[0], "SMTP2WORKFLOW_WORKFLOW_") {
+			key := code + "+" + strings.ToLower(kv[0][23:]) + "@"
+			value := kv[1]
+
+			workflow, ok := workflows[key]
+			if !ok {
+				workflow = Workflow{}
+			}
+			workflow.WorkflowFileName = value
+			workflows[key] = workflow
 		}
 	}
 
@@ -112,18 +170,19 @@ func main() {
 type Backend struct{}
 
 func (bkd *Backend) Login(state *smtp.ConnectionState, username, password string) (smtp.Session, error) {
-	return &Session{}, nil
+	return &Session{Context: context.Background()}, nil
 }
 
 func (bkd *Backend) AnonymousLogin(state *smtp.ConnectionState) (smtp.Session, error) {
-	return &Session{}, nil
+	return &Session{Context: context.Background()}, nil
 }
 
 type Session struct {
-	From       string
-	To         string
-	WebhookURL string
-	Debug      bool
+	Context  context.Context
+	From     string
+	To       string
+	Workflow Workflow
+	Debug    bool
 }
 
 func (s *Session) Mail(from string, opts smtp.MailOptions) error {
@@ -146,9 +205,9 @@ func (s *Session) Rcpt(to string) error {
 		return nil
 	}
 
-	for prefix, url := range webhooks {
+	for prefix, workflow := range workflows {
 		if strings.HasPrefix(e.Address, prefix) {
-			s.WebhookURL = url
+			s.Workflow = workflow
 			return nil
 		}
 	}
@@ -174,27 +233,66 @@ func (s *Session) Data(r io.Reader) error {
 		log.Println(string(buf))
 	}
 
-	if s.WebhookURL == "" {
-		return nil
-	}
+	err = RelayToWorkflow(s.Context, s.Workflow, buf)
 
-	resp, err := http.Post(s.WebhookURL, "message/rfc822", bytes.NewReader(buf))
 	if err != nil {
-		log.Println("POST", s.WebhookURL, err)
-		return err
-	}
+		log.Println("POST", s.Workflow, err)
 
-	log.Println("POST", s.WebhookURL, resp.StatusCode)
-
-	if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
-		return nil
-	} else {
 		return &smtp.SMTPError{
 			Code:         450,
 			EnhancedCode: smtp.EnhancedCode{4, 5, 0},
 			Message:      "Failed to relay message",
 		}
 	}
+
+	log.Println("POST", s.Workflow, 201)
+
+	return nil
+}
+
+func GetDefaultBranch(ctx context.Context, owner string, repo string) (*string, error) {
+	tc := oauth2.NewClient(ctx, githubTS)
+
+	client := github.NewClient(tc)
+
+	repository, _, err := client.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return nil, err
+	}
+
+	return repository.DefaultBranch, nil
+}
+
+func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
+	tc := oauth2.NewClient(ctx, githubTS)
+
+	client := github.NewClient(tc)
+
+	blob := &github.Blob{
+		Content:  github.String(base64.StdEncoding.EncodeToString(buf)),
+		Encoding: github.String("base64"),
+	}
+	blob, _, err := client.Git.CreateBlob(ctx, workflow.Owner, workflow.Repo, blob)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	event := github.CreateWorkflowDispatchEventRequest{
+		Ref: workflow.Ref,
+		Inputs: map[string]interface{}{
+			"email_sha": blob.SHA,
+		},
+	}
+	resp, err := client.Actions.CreateWorkflowDispatchEventByFileName(ctx, workflow.Owner, workflow.Repo, workflow.WorkflowFileName, event)
+	if err != nil {
+		log.Println(err)
+		return err
+	} else if resp.StatusCode != 201 {
+		return errors.New("github workflow dispatch failed")
+	}
+
+	return nil
 }
 
 func (s *Session) Reset() {}

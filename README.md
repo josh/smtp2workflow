@@ -13,7 +13,9 @@ services:
     environment:
       - SMTP2WORKFLOW_DOMAIN=example.com
       - SMTP2WORKFLOW_CODE=d039b5
-      - SMTP2WORKFLOW_URL_TEST=https://d039b5.requestcatcher.com/test
+      - SMTP2WORKFLOW_REPOSITORY_TEST=owner/repo
+      - SMTP2WORKFLOW_REF_TEST=main
+      - SMTP2WORKFLOW_WORKFLOW_ID_TEST=main.yaml
 ```
 
-Will forward mail to `d039b5+test@example.com` to `https://d039b5.requestcatcher.com/test`.
+Will forward mail to `d039b5+test@example.com` as a workflow dispatch event on the `owner/repo` repository.

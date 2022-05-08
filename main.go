@@ -277,7 +277,7 @@ func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
 		log.Println(err)
 		return err
 	}
-	log.Println("UPLOAD", blob.SHA)
+	log.Println("UPLOAD", *blob.SHA)
 
 	event := github.CreateWorkflowDispatchEventRequest{
 		Ref: workflow.Ref,

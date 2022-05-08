@@ -289,12 +289,12 @@ func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
 	if err != nil {
 		log.Println(err)
 		return err
-	} else if resp.StatusCode != 201 {
-		log.Println("status code", resp.StatusCode)
-		return errors.New("github workflow dispatch failed")
+	} else if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
+		return nil
+	} else {
+		msg := fmt.Sprintf("github workflow dispatch failed: %d", resp.StatusCode)
+		return errors.New(msg)
 	}
-
-	return nil
 }
 
 func (s *Session) Reset() {}

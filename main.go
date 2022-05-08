@@ -236,7 +236,7 @@ func (s *Session) Data(r io.Reader) error {
 	err = RelayToWorkflow(s.Context, s.Workflow, buf)
 
 	if err != nil {
-		log.Println("POST", s.Workflow, err)
+		log.Println("ERROR", s.Workflow, err)
 
 		return &smtp.SMTPError{
 			Code:         450,
@@ -245,7 +245,7 @@ func (s *Session) Data(r io.Reader) error {
 		}
 	}
 
-	log.Println("POST", s.Workflow, 201)
+	log.Println("OK", s.Workflow, 201)
 
 	return nil
 }

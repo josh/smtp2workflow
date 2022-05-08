@@ -289,6 +289,7 @@ func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
 		log.Println(err)
 		return err
 	} else if resp.StatusCode != 201 {
+		log.Println("status code", resp.StatusCode)
 		return errors.New("github workflow dispatch failed")
 	}
 

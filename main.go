@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	name      = "smtp2webhook"
-	envPrefix = "SMTP2WEBHOOK"
+	name      = "smtp2workflow"
+	envPrefix = "SMTP2WORKFLOW"
 	version   = "1.1.1"
 )
 
@@ -51,7 +51,7 @@ func main() {
 
 	for _, s := range os.Environ() {
 		kv := strings.SplitN(s, "=", 2)
-		if strings.HasPrefix(kv[0], "SMTP2WEBHOOK_URL_") {
+		if strings.HasPrefix(kv[0], "SMTP2WORKFLOW_URL_") {
 			key := code + "+" + strings.ToLower(kv[0][17:]) + "@"
 			value := kv[1]
 			webhooks[key] = value

@@ -1,4 +1,4 @@
-module github.com/josh/smtp2webhook
+module github.com/josh/smtp2workflow
 
 go 1.16
 

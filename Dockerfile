@@ -8,14 +8,14 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
   -ldflags '-extldflags "-static"' \
-  -o /go/bin/smtp2webhook
+  -o /go/bin/smtp2workflow
 
 
 FROM scratch
-COPY --from=builder /go/bin/smtp2webhook /smtp2webhook
+COPY --from=builder /go/bin/smtp2workflow /smtp2workflow
 
-ENTRYPOINT [ "/smtp2webhook" ]
-HEALTHCHECK CMD [ "/smtp2webhook", "-healthcheck" ]
+ENTRYPOINT [ "/smtp2workflow" ]
+HEALTHCHECK CMD [ "/smtp2workflow", "-healthcheck" ]
 
 EXPOSE 25/tcp
 EXPOSE 465/tcp

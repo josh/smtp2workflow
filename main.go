@@ -29,7 +29,6 @@ var (
 	domain       string
 	code         string
 	githubToken  string
-	githubTS     oauth2.TokenSource
 	tlsCertPath  string
 	tlsKeyPath   string
 	healthcheck  bool
@@ -47,6 +46,7 @@ func (w Workflow) String() string {
 	return fmt.Sprintf("{%s/%s/blob/%s/.github/workflows/%s}", w.Owner, w.Repo, w.Ref, w.WorkflowFileName)
 }
 
+var ghClient *github.Client
 var workflows = make(map[string]Workflow)
 
 func main() {
@@ -67,11 +67,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	if githubToken != "" {
-		githubTS = oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: githubToken},
-		)
-	}
+	ts := oauth2.StaticTokenSource(
+		&oauth2.Token{AccessToken: githubToken},
+	)
+	tc := oauth2.NewClient(ctx, ts)
+	ghClient = github.NewClient(tc)
 
 	for _, s := range os.Environ() {
 		kv := strings.SplitN(s, "=", 2)
@@ -137,7 +137,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	s := smtp.NewServer(&Backend{})
+	s := smtp.NewServer(&Backend{
+		Context: ctx,
+	})
 
 	if tlsCertPath != "" && tlsKeyPath != "" {
 		cert, err := tls.LoadX509KeyPair(tlsCertPath, tlsKeyPath)
@@ -170,14 +172,16 @@ func main() {
 	}
 }
 
-type Backend struct{}
+type Backend struct {
+	Context context.Context
+}
 
 func (bkd *Backend) Login(state *smtp.ConnectionState, username, password string) (smtp.Session, error) {
-	return &Session{Context: context.Background()}, nil
+	return &Session{Context: bkd.Context}, nil
 }
 
 func (bkd *Backend) AnonymousLogin(state *smtp.ConnectionState) (smtp.Session, error) {
-	return &Session{Context: context.Background()}, nil
+	return &Session{Context: bkd.Context}, nil
 }
 
 type Session struct {
@@ -244,11 +248,7 @@ func (s *Session) Data(r io.Reader) error {
 }
 
 func GetDefaultBranch(ctx context.Context, owner string, repo string) (*string, error) {
-	tc := oauth2.NewClient(ctx, githubTS)
-
-	client := github.NewClient(tc)
-
-	repository, _, err := client.Repositories.Get(ctx, owner, repo)
+	repository, _, err := ghClient.Repositories.Get(ctx, owner, repo)
 	if err != nil {
 		return nil, err
 	}
@@ -257,15 +257,11 @@ func GetDefaultBranch(ctx context.Context, owner string, repo string) (*string, 
 }
 
 func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
-	tc := oauth2.NewClient(ctx, githubTS)
-
-	client := github.NewClient(tc)
-
 	blob := &github.Blob{
 		Content:  github.String(base64.StdEncoding.EncodeToString(buf)),
 		Encoding: github.String("base64"),
 	}
-	blob, _, err := client.Git.CreateBlob(ctx, workflow.Owner, workflow.Repo, blob)
+	blob, _, err := ghClient.Git.CreateBlob(ctx, workflow.Owner, workflow.Repo, blob)
 	if err != nil {
 		log.Println(err)
 		return err
@@ -278,7 +274,7 @@ func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
 			"email_sha": blob.SHA,
 		},
 	}
-	resp, err := client.Actions.CreateWorkflowDispatchEventByFileName(ctx, workflow.Owner, workflow.Repo, workflow.WorkflowFileName, event)
+	resp, err := ghClient.Actions.CreateWorkflowDispatchEventByFileName(ctx, workflow.Owner, workflow.Repo, workflow.WorkflowFileName, event)
 	if err != nil {
 		log.Println(err)
 		return err

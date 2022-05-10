@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -292,8 +291,7 @@ func RelayToWorkflow(ctx context.Context, workflow Workflow, buf []byte) error {
 	} else if resp.StatusCode >= 200 && resp.StatusCode <= 299 {
 		return nil
 	} else {
-		msg := fmt.Sprintf("github workflow dispatch failed: %d", resp.StatusCode)
-		return errors.New(msg)
+		return fmt.Errorf("github workflow dispatch failed: %d", resp.StatusCode)
 	}
 }
 

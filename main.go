@@ -43,6 +43,10 @@ type Workflow struct {
 	WorkflowFileName string
 }
 
+func (w Workflow) String() string {
+	return fmt.Sprintf("{%s/%s/blob/%s/.github/workflows/%s}", w.Owner, w.Repo, w.Ref, w.WorkflowFileName)
+}
+
 var workflows = make(map[string]Workflow)
 
 func main() {

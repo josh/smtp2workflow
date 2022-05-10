@@ -185,7 +185,6 @@ type Session struct {
 	From     string
 	To       string
 	Workflow Workflow
-	Debug    bool
 }
 
 func (s *Session) Mail(from string, opts smtp.MailOptions) error {
@@ -201,11 +200,6 @@ func (s *Session) Rcpt(to string) error {
 		log.Println(s.From, "->", s.To, "501")
 		log.Println(err)
 		return err
-	}
-
-	if strings.HasPrefix(e.Address, "postmaster@") || strings.HasPrefix(e.Address, "abuse@") {
-		s.Debug = true
-		return nil
 	}
 
 	for prefix, workflow := range workflows {
@@ -230,10 +224,6 @@ func (s *Session) Data(r io.Reader) error {
 	if err != nil {
 		log.Println(err)
 		return err
-	}
-
-	if s.Debug {
-		log.Println(string(buf))
 	}
 
 	err = RelayToWorkflow(s.Context, s.Workflow, buf)

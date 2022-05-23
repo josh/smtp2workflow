@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/emersion/go-smtp v0.15.0
-	github.com/google/go-github/v44 v44.0.0
+	github.com/google/go-github/v44 v44.1.0
 	github.com/namsral/flag v1.7.4-pre
 	golang.org/x/oauth2 v0.0.0-20220411215720-9780585627b5
 )
